@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 from datasets import Audio, Image
 
@@ -28,6 +30,15 @@ def remove_special_tokens(text):
     for value in get_special_tokens().values():
         text = text.replace(value, '').strip()
     return text
+
+
+def remove_non_special_tokens(text):
+    special_tokens = get_special_tokens().values()
+    patterns = '|'.join(re.escape(token) for token in special_tokens)
+    special_tokens_found = re.findall(patterns, text)
+    text_with_only_special_tokens = ''.join(special_tokens_found)
+
+    return text_with_only_special_tokens
 
 
 # Image
@@ -118,3 +129,28 @@ def size_to_bytes(size):
                          f'expected in [KB, MB, GB, TB, PB, EB, ZB, YB, '
                          f'KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB], '
                          f'(case insensitive, counted by *Bytes*).')
+
+
+def insert_texts_after_placeholders(original_string,
+                                    placeholders,
+                                    new_texts,
+                                    delimiter_in_insert_pos=' '):
+    if len(placeholders) != len(new_texts):
+        raise ValueError(
+            'The number of placeholders and new_texts must be equal')
+
+    modified_string = original_string
+    for placeholder, new_text in zip(placeholders, new_texts):
+        # Find the index of the next occurrence of the placeholder
+        index = modified_string.find(placeholder)
+        if index == -1:
+            raise ValueError(
+                f"Placeholder '{placeholder}' not found in the string")
+        # Insert new_text at the found index position
+        modified_string = \
+            modified_string[:index + len(placeholder)] + \
+            new_text + \
+            delimiter_in_insert_pos + \
+            modified_string[index + len(placeholder):]
+
+    return modified_string

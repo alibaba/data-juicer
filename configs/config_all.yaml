@@ -50,6 +50,10 @@ process:
   - clean_copyright_mapper:                                 # remove copyright comments.
   - expand_macro_mapper:                                    # expand macro definitions in Latex text.
   - fix_unicode_mapper:                                     # fix unicode errors in text.
+  - generate_caption_mapper:
+      hf_blip2: 'Salesforce/blip2-opt-2.7b'                 # blip2 model name on huggingface to generate caption
+      caption_num: 1                                        # how many candidate captions to generate for each image
+      keep_candidate_mode: 'random_any'                     # retain strategy for the generated $caption_num$ candidates. should be in ["random_any", "similar_one_simhash", "all"].
   - nlpaug_en_mapper:                                       # simply augment texts in English based on the nlpaug library
       sequential: false                                       # whether combine all augmentation methods to a sequence. If it's True, a sample will be augmented by all opened augmentation methods sequentially. If it's False, each opened augmentation method would generate its augmented samples independently.
       aug_num: 1                                              # number of augmented samples to be generated. If `sequential` is True, there will be total aug_num augmented samples generated. If it's False, there will be (aug_num * #opened_aug_method) augmented samples generated.
