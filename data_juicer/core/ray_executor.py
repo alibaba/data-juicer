@@ -57,8 +57,8 @@ class RayExecutor:
         # - If checkpoint is open, clean the cache files after each process
         if Fields.stats not in dataset.columns(fetch_if_missing=False):
             logger.info(f'columns {dataset.columns(fetch_if_missing=False)}')
-            dataset = dataset.add_column(Fields.stats,
-                                         lambda df: [{}] * len(df))
+            dataset = dataset.add_column(
+                Fields.stats, lambda df: [{} for _ in range(len(df))])
         logger.info('Processing data...')
         for op_cfg, op in zip(self.process_list, self.ops):
             op_name, _ = list(op_cfg.items())[0]
