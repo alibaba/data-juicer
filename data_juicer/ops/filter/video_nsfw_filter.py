@@ -9,7 +9,7 @@ from data_juicer.utils.mm_utils import (extract_key_frames,
 from data_juicer.utils.model_utils import get_model, prepare_model
 
 from ..base_op import OPERATORS, Filter
-from ..op_fusion import LOADED_VIDEOS
+from ..op_fusion import INTER_SAMPLED_FRAMES, LOADED_VIDEOS
 
 OP_NAME = 'video_nsfw_filter'
 
@@ -24,6 +24,7 @@ with AvailabilityChecking(['torch', 'transformers'], OP_NAME):
 
 @OPERATORS.register_module(OP_NAME)
 @LOADED_VIDEOS.register_module(OP_NAME)
+@INTER_SAMPLED_FRAMES.register_module(OP_NAME)
 class VideoNSFWFilter(Filter):
     """Filter to keep samples whose videos have low nsfw scores."""
 
@@ -89,6 +90,10 @@ class VideoNSFWFilter(Filter):
         self.frame_sampling_method = frame_sampling_method
         self.frame_num = frame_num
 
+        self.sampled_frames_key_suffix = f'-{frame_sampling_method}' + \
+            ('' if frame_sampling_method == 'all_keyframes'
+             else f'-{frame_num}')
+
     def compute_stats(self, sample, rank=None, context=False):
         # check if it's computed already
         if StatsKeys.video_nsfw_score in sample[Fields.stats]:
@@ -109,14 +114,24 @@ class VideoNSFWFilter(Filter):
         model, processor = get_model(self.model_key, rank=rank)
 
         for video_key, video in videos.items():
+            sampled_frames_key = video_key + self.sampled_frames_key_suffix
 
             # extract frame images
-            if self.frame_sampling_method == 'all_keyframes':
-                frames = extract_key_frames(video)
-            elif self.frame_sampling_method == 'uniform':
-                frames = extract_video_frames_uniformly(video, self.frame_num)
+            if context and sampled_frames_key in sample[Fields.context]:
+                # context hit
+                frames = sample[Fields.context][sampled_frames_key]
             else:
-                frames = []
+                if self.frame_sampling_method == 'all_keyframes':
+                    frames = extract_key_frames(video)
+                elif self.frame_sampling_method == 'uniform':
+                    frames = extract_video_frames_uniformly(
+                        video, self.frame_num)
+                else:
+                    frames = []
+
+                # store the sampled frames in the context
+                if context:
+                    sample[Fields.context][sampled_frames_key] = frames
 
             frame_images = [frame.to_image() for frame in frames]
             inputs = processor(images=frame_images, return_tensors='pt')

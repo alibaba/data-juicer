@@ -8,7 +8,6 @@ from data_juicer.utils.availability_utils import AvailabilityChecking
 from data_juicer.utils.constant import Fields, StatsKeys
 
 from ..base_op import OPERATORS, Filter
-from ..op_fusion import LOADED_VIDEOS
 
 OP_NAME = 'video_motion_score_filter'
 
@@ -26,7 +25,6 @@ def VideoCapture(*args, **kwargs):
 
 
 @OPERATORS.register_module(OP_NAME)
-@LOADED_VIDEOS.register_module(OP_NAME)
 class VideoMotionScoreFilter(Filter):
     """Filter to keep samples with video motion scores within a specific range. The
     Farneback's algorith from OpenCV is used to compute dense optical flow.

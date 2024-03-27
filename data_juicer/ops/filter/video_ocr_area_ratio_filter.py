@@ -9,7 +9,7 @@ from data_juicer.utils.mm_utils import (extract_video_frames_uniformly,
                                         load_data_with_context, load_video)
 
 from ..base_op import OPERATORS, Filter
-from ..op_fusion import LOADED_VIDEOS
+from ..op_fusion import INTER_SAMPLED_FRAMES, LOADED_VIDEOS
 
 OP_NAME = 'video_ocr_area_ratio_filter'
 
@@ -31,6 +31,7 @@ def triangle_area(p1, p2, p3):
 
 @OPERATORS.register_module(OP_NAME)
 @LOADED_VIDEOS.register_module(OP_NAME)
+@INTER_SAMPLED_FRAMES.register_module(OP_NAME)
 class VideoOcrAreaRatioFilter(Filter):
     """Keep data samples whose detected text area ratios for specified frames
     in the video are within a specified range.
@@ -84,6 +85,9 @@ class VideoOcrAreaRatioFilter(Filter):
             verbose=False,
         )
 
+        # only uniformly sampling method is supported in this OP
+        self.sampled_frames_key_suffix = f'-uniform-{frame_sample_num}'
+
     def compute_stats(self, sample, context=False):
         # check if it's computed already
         if StatsKeys.video_ocr_area_ratio in sample[Fields.stats]:
@@ -103,8 +107,15 @@ class VideoOcrAreaRatioFilter(Filter):
         # compute ocr area ratios
         video_ocr_area_ratios = {}
         for video_key, container in videos.items():
-            sampled_frames = extract_video_frames_uniformly(
-                container, self.frame_sample_num)
+            sampled_frames_key = video_key + self.sampled_frames_key_suffix
+            if context and sampled_frames_key in sample[Fields.context]:
+                sampled_frames = sample[Fields.context][sampled_frames_key]
+            else:
+                sampled_frames = extract_video_frames_uniformly(
+                    container, self.frame_sample_num)
+                # store the sampled frames in the context
+                if context:
+                    sample[Fields.context][sampled_frames_key] = sampled_frames
             images = [f.to_image() for f in sampled_frames]
             # collect ocr results for each image
             frame_ocr_area_ratios = []
@@ -125,7 +136,7 @@ class VideoOcrAreaRatioFilter(Filter):
                 for points in free_list[0]:
                     triangle1 = points[:3]
                     quad_area += triangle_area(*triangle1)
-                    triangle2 = points[3:] + [points[0]]
+                    triangle2 = points[2:] + [points[0]]
                     quad_area += triangle_area(*triangle2)
                 text_area = rect_area + quad_area
                 frame_ocr_area_ratios.append(text_area / total_area)

@@ -20,6 +20,7 @@ LOADED_AUDIOS = Registry(InterVars.loaded_audios)
 
 # videos
 LOADED_VIDEOS = Registry(InterVars.loaded_videos)
+INTER_SAMPLED_FRAMES = Registry(InterVars.sampled_frames)
 
 # all
 ALL_INTER_VARS = [INTER_LINES, INTER_WORDS, LOADED_IMAGES, LOADED_VIDEOS]
@@ -132,19 +133,28 @@ class FusedFilter(Filter):
         """
         Initialization method.
 
-        :param fused_filers: a list of filters to be fused.
+        :param fused_filters: a list of filters to be fused.
         """
         super().__init__()
         self.fused_filters = fused_filters
+        # set _accelerator to 'cuda' if there exists any ops whose _accelerator
+        # is 'cuda'
+        accelerator_methods = set(
+            [op._accelerator for op in self.fused_filters])
+        if 'cuda' in accelerator_methods:
+            self._accelerator = 'cuda'
 
-    def compute_stats(self, sample):
+    def compute_stats(self, sample, rank=None):
         import av
 
         # context for the intermediate vars
         sample[Fields.context] = {}
         for op in self.fused_filters:
             # open the context for these fused ops
-            sample = op.compute_stats(sample, context=True)
+            if op._accelerator == 'cuda':
+                sample = op.compute_stats(sample, rank=rank, context=True)
+            else:
+                sample = op.compute_stats(sample, context=True)
         # clean up the contexts after processing
         # check if there are containers that need to be closed
         for context_key in sample[Fields.context]:

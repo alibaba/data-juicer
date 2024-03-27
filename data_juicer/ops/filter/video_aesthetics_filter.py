@@ -10,7 +10,7 @@ from data_juicer.utils.mm_utils import (extract_key_frames,
 
 from ...utils.model_utils import get_model, prepare_model
 from ..base_op import OPERATORS, Filter
-from ..op_fusion import LOADED_VIDEOS
+from ..op_fusion import INTER_SAMPLED_FRAMES, LOADED_VIDEOS
 
 OP_NAME = 'video_aesthetics_filter'
 CHECK_PKGS = ['torch', 'transformers', 'simple-aesthetics-predictor']
@@ -27,6 +27,7 @@ with AvailabilityChecking(CHECK_PKGS, OP_NAME):
 
 @OPERATORS.register_module(OP_NAME)
 @LOADED_VIDEOS.register_module(OP_NAME)
+@INTER_SAMPLED_FRAMES.register_module(OP_NAME)
 class VideoAestheticsFilter(Filter):
     """Filter to keep data samples with aesthetics scores for specified frames
     in the videos within a specific range.
@@ -110,6 +111,10 @@ class VideoAestheticsFilter(Filter):
         self.frame_sampling_method = frame_sampling_method
         self.frame_num = frame_num
 
+        self.sampled_frames_key_suffix = f'-{frame_sampling_method}' + \
+            ('' if frame_sampling_method == 'all_keyframes'
+             else f'-{frame_num}')
+
     def compute_stats(self, sample, rank=None, context=False):
         # check if it's computed already
         if StatsKeys.video_frames_aesthetics_score in sample[Fields.stats]:
@@ -127,10 +132,13 @@ class VideoAestheticsFilter(Filter):
                                                 loaded_video_keys, load_video)
 
         aesthetics_scores = []
-        for video in videos:
-            all_frames = []
+        for key, video in videos.items():
+            sampled_frames_key = key + self.sampled_frames_key_suffix
             if video is None:
                 continue
+            elif context and sampled_frames_key in sample[Fields.context]:
+                # sampled frames can be found in the context
+                frames = sample[Fields.context][sampled_frames_key]
             else:
                 # extract frame images
                 if self.frame_sampling_method == 'all_keyframes':
@@ -140,8 +148,11 @@ class VideoAestheticsFilter(Filter):
                         video, self.frame_num)
                 else:
                     frames = []
-                all_frames.extend(frames)
-            frame_images = [frame.to_image() for frame in all_frames]
+
+                # store the sampled frames in the context
+                if context:
+                    sample[Fields.context][sampled_frames_key] = frames
+            frame_images = [frame.to_image() for frame in frames]
 
             # compute aesthetics_scores
             model, processor = get_model(self.model_key, rank=rank)

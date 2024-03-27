@@ -195,4 +195,10 @@ class InterVars(object):
     loaded_audios = DEFAULT_PREFIX + 'loaded_audios'  # (data, sampling_rate)
 
     # videos
-    loaded_videos = DEFAULT_PREFIX + 'loaded_videos'  # InputContainer from av
+    # InputContainer from av.
+    # Key: {video_path}
+    loaded_videos = DEFAULT_PREFIX + 'loaded_videos'
+    # sampled frames.
+    # Key: {video_path}-{frame_sampling_method}[-{frame_num}]
+    #   {frame_num} is only used when {frame_sampling_method} is "uniform"
+    sampled_frames = DEFAULT_PREFIX + 'sampled_frames'
