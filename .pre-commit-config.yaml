@@ -39,5 +39,6 @@ exclude: |
     docs/.*|
     tests/.*|
     demos/.*|
+    tools/video_metrics.*|
     .*\.md
   )$
