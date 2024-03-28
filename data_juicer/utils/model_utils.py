@@ -1,9 +1,10 @@
 import fnmatch
 import os
 from functools import partial
-from typing import Optional, Union
+from typing import Any, List, Optional, Union
 
 import multiprocess as mp
+import requests
 import wget
 from loguru import logger
 
@@ -14,8 +15,8 @@ from .cache_utils import DATA_JUICER_MODELS_CACHE as DJMC
 MODEL_ZOO = {}
 
 # Default cached models links for downloading
-MODEL_LINKS = 'https://dail-wlcb.oss-cn-wulanchabu.aliyuncs.com/' \
-               'data_juicer/models/'
+MODEL_LINKS = ('https://dail-wlcb.oss-cn-wulanchabu.aliyuncs.com/'
+               'data_juicer/models/')
 
 # Backup cached models links for downloading
 BACKUP_MODEL_LINKS = {
@@ -174,9 +175,9 @@ def prepare_nltk_model(lang, name_pattern='punkt.{}.pickle'):
         'pt': 'portuguese',
         'es': 'spanish'
     }
-    assert lang in nltk_to_punkt.keys(
-    ), 'lang must be one of the following: {}'.format(
-        list(nltk_to_punkt.keys()))
+    assert (lang in nltk_to_punkt.keys()
+            ), 'lang must be one of the following: {}'.format(
+                list(nltk_to_punkt.keys()))
     model_name = name_pattern.format(nltk_to_punkt[lang])
 
     logger.info('Loading nltk punkt split model...')
@@ -319,6 +320,7 @@ def prepare_video_blip_model(pretrained_model_name_or_path,
             self.post_init()
 
     from transformers import AutoProcessor
+
     processor = AutoProcessor.from_pretrained(
         pretrained_model_name_or_path, trust_remote_code=trust_remote_code)
     if return_model:
@@ -418,10 +420,11 @@ def prepare_spacy_model(lang, name_pattern='{}_core_web_md-3.5.0'):
     # decompress the compressed model if it's not decompressed
     def decompress_model(compressed_model_path):
         decompressed_model_path = compressed_model_path.replace('.zip', '')
-        if os.path.exists(decompressed_model_path) \
-                and os.path.isdir(decompressed_model_path):
+        if os.path.exists(decompressed_model_path) and os.path.isdir(
+                decompressed_model_path):
             return decompressed_model_path
         import zipfile
+
         with zipfile.ZipFile(compressed_model_path) as zf:
             zf.extractall(DJMC)
         return decompressed_model_path
@@ -506,6 +509,7 @@ def prepare_recognizeAnything_model(
     :param input_size: the input size of the model.
     """
     from ram.models import ram_plus
+
     logger.info('Loading recognizeAnything model...')
     try:
         model = ram_plus(pretrained=check_model(pretrained_model_name_or_path),
@@ -574,3 +578,95 @@ def get_model(model_key=None, rank=None):
         rank = rank % cuda_device_count()
         move_to_cuda(MODEL_ZOO[model_key], rank)
     return MODEL_ZOO[model_key]
+
+
+def call_gpt_vision_api(
+    system_prompt: str = '',
+    user_prompt: str = '',
+    images: Union[str, List[str], None] = None,
+    *,
+    api_key: str = None,
+    model: str = 'gpt-4-vision-preview',
+    max_tokens: int = 500,
+    temperature: float = 0.0,
+    **kwargs: Any,
+):
+    images = [images] if isinstance(images, str) else (images or [])
+
+    api_url = 'https://api.openai.com/v1/chat/completions'
+
+    if api_key is None:
+        api_key = os.getenv('OPENAI_API_KEY')
+    if api_key is None:
+        logger.error(
+            'The api_key must be set either by passing it to the function '
+            'call or by setting the OPENAI_API_KEY environment variable')
+        return ''
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+    }
+    image_payload = [{
+        'type': 'image_url',
+        'image_url': {
+            'url': url,
+            'detail': 'low'
+        }
+    } for url in images]
+    data = {
+        'model':
+        model,
+        'messages': [
+            {
+                'role': 'system',
+                'content': system_prompt
+            },
+            {
+                'role':
+                'user',
+                'content': [
+                    {
+                        'type': 'text',
+                        'text': user_prompt
+                    },
+                    *image_payload,
+                ],
+            },
+        ],
+        'max_tokens':
+        max_tokens,
+        'temperature':
+        temperature,
+        **kwargs,
+    }
+
+    try:
+        response = requests.post(api_url, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+
+        if 'choices' in result and result['choices']:
+            return result['choices'][0]['message']['content']
+        else:
+            logger.warning('No results returned from the API.')
+            return ''
+    except requests.exceptions.HTTPError as errh:
+        if errh.response.status_code == 401:
+            logger.warning('Invalid API key provided.')
+        elif errh.response.status_code == 429:
+            logger.warning(
+                'API request limit has been reached. Please try again later.')
+        else:
+            logger.warning(f'HTTP error occurred: {errh}')
+    except requests.exceptions.ConnectionError:
+        logger.warning('Network error occurred. Please check your connection.')
+    except requests.exceptions.Timeout:
+        logger.warning('The request timed out. Please try again later.')
+    except requests.exceptions.RequestException as err:
+        logger.warningt(f'An error occurred: {err}')
+    except Exception as e:
+        logger.warning(f'An unexpected error occurred: {e}')
+
+    logger.warning('API request failed.')
+    return ''

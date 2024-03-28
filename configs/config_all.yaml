@@ -59,8 +59,8 @@ process:
       radius: 2                                               # radius of blur kernel
   - image_captioning_from_gpt4v_mapper:                     # generate samples whose texts are generated based on gpt-4-visison and the image
       mode: 'description'                                     # mode of text generated from images, can be one of ['resoning', 'description', 'conversation', 'custom']
-      api_key: ''                                             # the API key to authenticate the request
-      max_token: 500                                          # the maximum number of tokens to generate. Default is 500.
+      api_key: null                                           # the API key to authenticate the request
+      max_tokens: 500                                         # the maximum number of tokens to generate. Default is 500.
       temperature: 1.0                                        # controls the randomness of the output (range from 0 to 1). Default is 0.
       system_prompt: ''                                       # a string prompt used to set the context of a conversation and provide global guidance or rules for the gpt4-vision so that it can  generate responses in the expected way. If `mode` set to `custom`, the parameter will be used
       user_prompt: ''                                         # a string prompt to guide the generation of gpt4-vision for each samples. It's "" in default, which means no prompt provided

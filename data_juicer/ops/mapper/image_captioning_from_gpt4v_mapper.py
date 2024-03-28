@@ -1,6 +1,5 @@
 import copy
 
-import requests
 from jsonargparse.typing import ClosedUnitInterval
 from loguru import logger
 
@@ -9,6 +8,7 @@ from data_juicer.utils.mm_utils import (SpecialTokens, image_byte_to_base64,
                                         load_image_byte,
                                         remove_non_special_tokens,
                                         remove_special_tokens)
+from data_juicer.utils.model_utils import call_gpt_vision_api
 
 from ..base_op import OPERATORS, Mapper
 from ..op_fusion import LOADED_IMAGES
@@ -23,75 +23,6 @@ SYSTEM_PROMPTS = {
 }
 
 
-def call_gpt_vision_api(api_key,
-                        system_prompt,
-                        user_prompt,
-                        base64_image,
-                        max_tokens=500,
-                        temperature=1.0,
-                        model='gpt-4-vision-preview'):
-    api_url = 'https://api.openai.com/v1/chat/completions'
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}'
-    }
-    data = {
-        'model':
-        model,
-        'messages': [{
-            'role': 'system',
-            'content': system_prompt
-        }, {
-            'role':
-            'user',
-            'content': [{
-                'type': 'text',
-                'text': user_prompt
-            }, {
-                'type': 'image_url',
-                'image_url': {
-                    'url': f'data:image/jpeg;base64,{base64_image}',
-                    'detail': 'low'
-                }
-            }]
-        }],
-        'max_tokens':
-        max_tokens,
-        'temperature':
-        temperature
-    }
-    try:
-        response = requests.post(api_url, headers=headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-
-        if 'choices' in result and result['choices']:
-            return result['choices'][0]['text']
-        else:
-            logger.warning('No results returned from the API, return None.')
-            return None
-
-    except requests.exceptions.HTTPError as errh:
-        if errh.response.status_code == 401:
-            logger.warning('Invalid API key provided.')
-        elif errh.response.status_code == 429:
-            logger.warning(
-                'API request limit has been reached. Please try again later.')
-        else:
-            logger.warning(f'HTTP error occurred: {errh}')
-    except requests.exceptions.ConnectionError:
-        logger.warning('Network error occurred. Please check your connection.')
-    except requests.exceptions.Timeout:
-        logger.warning('The request timed out. Please try again later.')
-    except requests.exceptions.RequestException as err:
-        logger.warningt(f'An error occurred: {err}')
-    except Exception as e:
-        logger.warning(f'An unexpected error occurred: {e}')
-
-    logger.warning('API request failed, return None.')
-    return None
-
-
 @OPERATORS.register_module('image_captioning_from_gpt4v_mapper')
 @LOADED_IMAGES.register_module('image_captioning_from_gpt4v_mapper')
 class ImageCaptioningFromGPT4VMapper(Mapper):
@@ -100,8 +31,8 @@ class ImageCaptioningFromGPT4VMapper(Mapper):
 
     def __init__(self,
                  mode: str = 'description',
-                 api_key: str = '',
-                 max_token: int = 500,
+                 api_key: str = None,
+                 max_tokens: int = 500,
                  temperature: ClosedUnitInterval = 1.0,
                  system_prompt: str = '',
                  user_prompt: str = '',
@@ -116,7 +47,7 @@ class ImageCaptioningFromGPT4VMapper(Mapper):
         :param mode: mode of text generated from images, can be one of
             ['resoning', 'description', 'conversation', 'custom']
         :param api_key: the API key to authenticate the request.
-        :param max_token: the maximum number of tokens to generate.
+        :param max_tokens: the maximum number of tokens to generate.
             Default is 500.
         :param temperature: controls the randomness of the output (range
             from 0 to 1). Default is 0.
@@ -162,7 +93,7 @@ class ImageCaptioningFromGPT4VMapper(Mapper):
 
         self.mode = mode
         self.api_key = api_key
-        self.max_token = max_token
+        self.max_tokens = max_tokens
         self.temperature = temperature
         self.user_prompt = user_prompt
         self.user_prompt_key = user_prompt_key
@@ -219,10 +150,14 @@ class ImageCaptioningFromGPT4VMapper(Mapper):
                 generated_text_single_chunk = []
                 for image_key in loaded_image_keys[offset:offset + img_count]:
                     image = images[image_key]
-                    res = call_gpt_vision_api(self.api_key, self.system_prompt,
+                    res = call_gpt_vision_api(self.system_prompt,
                                               prompt_texts,
-                                              image_byte_to_base64(image),
-                                              self.max_token, self.temperature)
+                                              image_byte_to_base64(
+                                                  image, 'image/jpeg'),
+                                              api_key=self.api_key,
+                                              max_tokens=self.max_tokens,
+                                              temperature=self.temperature,
+                                              **self.extra_args)
                     generated_text_single_chunk.append(res)
                 if self.any_or_all == 'all' and not all(
                         generated_text_single_chunk):

@@ -1,5 +1,8 @@
 import base64
 import datetime
+import imghdr
+import io
+import mimetypes
 import os
 import re
 import shutil
@@ -109,13 +112,27 @@ def load_image_byte(path):
     return image_data
 
 
-def image_path_to_base64(image_path):
+def image_path_to_base64(image_path, mime_type=None):
     with open(image_path, 'rb') as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+        image_byte = image_file.read()
+    return image_byte_to_base64(image_byte, mime_type)
 
 
-def image_byte_to_base64(image_byte):
-    return base64.b64encode(image_byte).decode('utf-8')
+def image_byte_to_base64(image_byte, mime_type=None):
+    image_base64 = base64.b64encode(image_byte).decode('utf-8')
+
+    if mime_type is None:
+        return image_base64
+
+    if mime_type == 'auto':
+        # guess correct mime_type
+        image_type = imghdr.what(None, h=image_byte)
+        mime_type = mimetypes.types_map.get(f'.{image_type}')
+        if mime_type is None:
+            mime_type = 'image/jpeg'
+
+    # https://www.rfc-editor.org/rfc/rfc2397
+    return f'data:{mime_type};base64,{image_base64}'
 
 
 def pil_to_opencv(pil_image):
@@ -173,6 +190,29 @@ def load_video(path):
     """
     container = av.open(path)
     return container
+
+
+def video_path_to_base64(video_path, frame_num=None, fps=None, mime_type=None):
+    duration = get_video_duration(video_path)
+
+    if fps is not None:
+        valid_frame_num = round(duration * fps)
+        if frame_num is not None:
+            valid_frame_num = min(valid_frame_num, frame_num)
+    else:
+        valid_frame_num = frame_num or 0
+
+    frames_base64 = []
+    if frame_num > 0:
+        frames = extract_video_frames_uniformly(video_path, valid_frame_num)
+        for frame in frames:
+            img = frame.to_image()
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG')
+            buf.seek(0)
+            frame_base64 = image_byte_to_base64(buf.read(), mime_type)
+            frames_base64.append(frame_base64)
+    return frames_base64
 
 
 def get_video_duration(input_video: Union[str, av.container.InputContainer],
