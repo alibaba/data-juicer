@@ -1,5 +1,8 @@
 import copy
 
+import pandas as pd
+import pyarrow as pa
+
 from data_juicer.utils.mm_utils import size_to_bytes
 from data_juicer.utils.registry import Registry
 
@@ -27,18 +30,27 @@ class OP:
         self.audio_key = kwargs.get('audio_key', 'audios')
         self.video_key = kwargs.get('video_key', 'videos')
 
+        # whether the model can be accelerated using cuda
         self._accelerator = kwargs.get('accelerator', 'cpu')
+
+        # parameters to determind the number of procs for this op
         self.spec_numprocs = kwargs.get('spec_numprocs', 0)
         self.cpu_required = kwargs.get('cpu_required', 1)
         self.mem_required = kwargs.get('mem_required', 0)
         if isinstance(self.mem_required, str):
             self.mem_required = size_to_bytes(self.mem_required) / 1024**3
 
+        # whether to use actor mode in ray
+        self._use_actor = kwargs.get('use_actor', False)
+
         from data_juicer.core.data import wrap_func_with_nested_access
         self.process = wrap_func_with_nested_access(self.process)
 
     def process(self, *args, **kwargs):
         raise NotImplementedError
+
+    def use_actor(self):
+        return self._use_actor
 
     def remove_extra_parameters(self, param_dict, keys=None):
         """
@@ -67,6 +79,14 @@ class OP:
         return related_parameters
 
 
+def ray_batch_mapper_wrapper(samples, fn):
+    samples = samples.to_pandas()
+    res = fn(samples)
+    if not isinstance(res, pd.DataFrame):
+        res = pd.DataFrame(res)
+    return pa.Table.from_pandas(res)
+
+
 class Mapper(OP):
 
     def __init__(self, *args, **kwargs):
@@ -85,7 +105,7 @@ class Mapper(OP):
         super(Mapper, self).__init__(*args, **kwargs)
 
         # In default, it's a normal OP instead of batched OP
-        self._batched_op = False
+        self._batched_op = kwargs.get('batched_op', False)
 
     def process(self, sample):
         """
@@ -98,6 +118,20 @@ class Mapper(OP):
 
     def is_batched_op(self):
         return self._batched_op
+
+    def __call__(self, sample):
+        """
+        Make the class callable to enable ray actor usage
+        """
+        if self.is_batched_op():
+            # same logic as ray_batch_mapper_wrapper
+            samples = sample.to_pandas()
+            res = self.process(samples)
+            if not isinstance(res, pd.DataFrame):
+                res = pd.DataFrame(res)
+            return pa.Table.from_pandas(res)
+        else:
+            return self.process(sample)
 
 
 class Filter(OP):
@@ -140,6 +174,12 @@ class Filter(OP):
         :return: true for keeping and false for filtering
         """
         raise NotImplementedError
+
+    def __call__(self, sample):
+        """
+        Make the class callable to enable ray actor usage
+        """
+        return self.compute_stats(sample)
 
 
 class Deduplicator(OP):
